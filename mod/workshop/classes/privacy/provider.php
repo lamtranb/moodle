@@ -34,6 +34,7 @@ use core_privacy\local\request\helper;
 use core_privacy\local\request\transform;
 use core_privacy\local\request\userlist;
 use core_privacy\local\request\writer;
+use mod_workshop\local\viewlet_user_preference;
 
 defined('MOODLE_INTERNAL') || die();
 
@@ -111,6 +112,8 @@ class provider implements
         $collection->add_subsystem_link('core_plagiarism', [], 'privacy:metadata:subsystem:coreplagiarism');
 
         $collection->add_user_preference('workshop_perpage', 'privacy:metadata:preference:perpage');
+        $collection->add_user_preference(viewlet_user_preference::WORKSHOP_VIEWLET_METADATA,
+                viewlet_user_preference::WORKSHOP_VIEWLET_METADATA_STRING);
 
         return $collection;
     }
@@ -130,9 +133,18 @@ class provider implements
      * @return contextlist List of contexts containing the user's personal data.
      */
     public static function get_contexts_for_userid(int $userid) : contextlist {
+        global $DB;
+
+        // Get all course modules has viewlet user preferences.
+        $viewletinstanceids = viewlet_user_preference::get_ids($userid);
+        $viewletprefsql = '';
+        if (!empty($viewletinstanceids)) {
+            list($insql, $inparams) = $DB->get_in_or_equal($viewletinstanceids, SQL_PARAMS_NAMED);
+            $viewletprefsql = "OR cm.instance $insql";
+        }
 
         $contextlist = new contextlist();
-        $sql = "SELECT ctx.id
+        $sql = "SELECT DISTINCT ctx.id
                   FROM {course_modules} cm
                   JOIN {modules} m ON cm.module = m.id AND m.name = :module
                   JOIN {context} ctx ON ctx.contextlevel = :contextlevel AND ctx.instanceid = cm.id
@@ -144,11 +156,11 @@ class provider implements
                     wa.gradinggradeoverby = :wagradinggradeoverby
                 )
              LEFT JOIN {workshop_aggregations} wr ON wr.workshopid = w.id AND wr.userid = :wruserid
-                 WHERE ws.authorid = :wsauthorid
+                 WHERE (ws.authorid = :wsauthorid
                     OR ws.gradeoverby = :wsgradeoverby
                     OR wa.id IS NOT NULL
-                    OR wr.id IS NOT NULL";
-
+                    OR wr.id IS NOT NULL)
+                    $viewletprefsql";
         $params = [
             'module' => 'workshop',
             'contextlevel' => CONTEXT_MODULE,
@@ -158,6 +170,10 @@ class provider implements
             'wagradinggradeoverby' => $userid,
             'wruserid' => $userid,
         ];
+
+        if (!empty($viewletinstanceids)) {
+            $params = array_merge($params, $inparams);
+        }
 
         $contextlist->add_from_sql($sql, $params);
 
@@ -216,6 +232,18 @@ class provider implements
 
         $rs->close();
 
+        $cm = $DB->get_record('course_modules', ['id' => $context->instanceid], 'id,instance');
+        $viewlets = viewlet_user_preference::get_list($cm->instance);
+        list($insql, $inparams) = $DB->get_in_or_equal($viewlets, SQL_PARAMS_NAMED);
+        $viewletuserprefs = $DB->get_records_sql("SELECT userid FROM {user_preferences} WHERE name $insql", $inparams);
+
+        foreach ($viewletuserprefs as $userpref) {
+            if (isset($userids[$userpref->userid])) {
+                continue;
+            }
+            $userids[$userpref->userid] = true;
+        }
+
         if ($userids) {
             $userlist->add_users(array_keys($userids));
         }
@@ -251,6 +279,8 @@ class provider implements
 
         // Export all given assessments.
         static::export_assessments($contextlist);
+
+        static::export_viewlet_preferences($contextlist);
     }
 
     /**
@@ -604,6 +634,10 @@ class provider implements
         grade_update('mod/workshop', $workshop->course, 'mod', 'workshop', $workshop->id, 1, null, ['reset' => true]);
 
         \core_plagiarism\privacy\provider::delete_plagiarism_for_context($context);
+
+        $viewlettypes = viewlet_user_preference::get_list($cm->instance);
+        list($prefsql, $prefparams) = $DB->get_in_or_equal($viewlettypes, SQL_PARAMS_NAMED);
+        $DB->execute("DELETE FROM {user_preferences} WHERE name $prefsql", $prefparams);
     }
 
     /**
@@ -721,6 +755,17 @@ class provider implements
         foreach ($contextlist as $context) {
             \core_plagiarism\privacy\provider::delete_plagiarism_for_user($user->id, $context);
         }
+
+        // Delete viewlet user preferences.
+        $prefix = viewlet_user_preference::WORKSHOP_VIEWLET_PREFIX;
+        $viewletsql = $DB->sql_like('name', ':name', false, false);
+        $params = [
+                'userid' => $user->id,
+                'name' => "%$prefix%"
+        ];
+        $DB->execute("DELETE FROM {user_preferences}
+                                 WHERE userid = :userid
+                                       AND $viewletsql", $params);
     }
 
     /**
@@ -835,6 +880,64 @@ class provider implements
 
         foreach ($userids as $userid) {
             \core_plagiarism\privacy\provider::delete_plagiarism_for_user($userid, $context);
+        }
+
+        // Delete viewlet preferences of users.
+        $prefix = viewlet_user_preference::WORKSHOP_VIEWLET_PREFIX;
+        $viewletsql = $DB->sql_like('name', ':name', false, false);
+        $params = [
+                'name' => "%$prefix%"
+        ];
+        $DB->execute("DELETE FROM {user_preferences}
+                                 WHERE userid $usersql
+                                       AND $viewletsql", $params + $userparams);
+    }
+
+    /**
+     * Export user preferences for collapsed/expanded section in view page.
+     *
+     * @param approved_contextlist $contextlist
+     */
+    private static function export_viewlet_preferences(approved_contextlist $contextlist) {
+        global $DB;
+
+        $user = $contextlist->get_user();
+
+        $prefs = $DB->get_records_sql("SELECT * FROM {user_preferences} WHERE userid = :userid", ['userid' => $user->id]);
+
+        $collapsedstr = get_string('privacy:request:viewlet:collapsed', 'mod_workshop');
+
+        list($contextsql, $contextparams) = $DB->get_in_or_equal($contextlist->get_contextids(), SQL_PARAMS_NAMED);
+
+        $sql = "SELECT cm.id AS cmid, cm.instance, " . \context_helper::get_preload_record_columns_sql('ctx') . "
+                  FROM {course_modules} cm
+                  JOIN {context} ctx ON cm.id = ctx.instanceid AND ctx.contextlevel = :contextlevel
+                 WHERE ctx.id {$contextsql}";
+
+        $params = $contextparams + [
+                        'module' => 'workshop',
+                        'contextlevel' => CONTEXT_MODULE
+                ];
+
+        $records = $DB->get_records_sql($sql, $params);
+        if (!empty($records)) {
+            foreach ($records as $record) {
+                \context_helper::preload_from_record($record);
+                $context = \context_module::instance($record->cmid);
+                foreach ($prefs as $pref) {
+                    list ($type, $instanceid) = viewlet_user_preference::extract($pref->name);
+                    if ($instanceid === null || $instanceid != $record->instance) {
+                        continue;
+                    }
+                    $writer = \core_privacy\local\request\writer::with_context($context);
+                    $writer->export_user_preference(
+                            'mod_workshop',
+                            $pref->name,
+                            transform::yesno($pref->value),
+                            $collapsedstr
+                    );
+                }
+            }
         }
     }
 }

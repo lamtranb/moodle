@@ -27,7 +27,9 @@ defined('MOODLE_INTERNAL') || die();
 
 global $CFG;
 
+use core_privacy\local\request\transform;
 use core_privacy\local\request\writer;
+use mod_workshop\local\viewlet_user_preference;
 
 /**
  * Unit tests for the privacy API implementation.
@@ -59,6 +61,9 @@ class mod_workshop_privacy_provider_testcase extends advanced_testcase {
     protected $student3;
 
     /** @var stdClass */
+    protected $student4;
+
+    /** @var stdClass */
     protected $teacher4;
 
     /** @var stdClass first workshop in course1 */
@@ -69,6 +74,9 @@ class mod_workshop_privacy_provider_testcase extends advanced_testcase {
 
     /** @var stdClass first workshop in course2 */
     protected $workshop21;
+
+    /** @var stdClass second workshop in course2 */
+    protected $workshop22;
 
     /** @var int ID of the submission in workshop11 by student1 */
     protected $submission111;
@@ -139,10 +147,12 @@ class mod_workshop_privacy_provider_testcase extends advanced_testcase {
 
         $this->workshop12 = $this->generator->create_module('workshop', ['course' => $this->course1]);
         $this->workshop21 = $this->generator->create_module('workshop', ['course' => $this->course2]);
+        $this->workshop22 = $this->generator->create_module('workshop', ['course' => $this->course2]);
 
         $this->student1 = $this->generator->create_user();
         $this->student2 = $this->generator->create_user();
         $this->student3 = $this->generator->create_user();
+        $this->student4 = $this->generator->create_user();
         $this->teacher4 = $this->generator->create_user();
 
         $this->submission111 = $this->workshopgenerator->create_submission($this->workshop11->id, $this->student1->id);
@@ -181,10 +191,12 @@ class mod_workshop_privacy_provider_testcase extends advanced_testcase {
         $cm11 = get_coursemodule_from_instance('workshop', $this->workshop11->id);
         $cm12 = get_coursemodule_from_instance('workshop', $this->workshop12->id);
         $cm21 = get_coursemodule_from_instance('workshop', $this->workshop21->id);
+        $cm22 = get_coursemodule_from_instance('workshop', $this->workshop22->id);
 
         $context11 = context_module::instance($cm11->id);
         $context12 = context_module::instance($cm12->id);
         $context21 = context_module::instance($cm21->id);
+        $context22 = context_module::instance($cm22->id);
 
         // Student1 has data in workshop11 (author + self reviewer), workshop12 (author) and workshop21 (reviewer).
         $contextlist = \mod_workshop\privacy\provider::get_contexts_for_userid($this->student1->id);
@@ -202,6 +214,13 @@ class mod_workshop_privacy_provider_testcase extends advanced_testcase {
         // Teacher4 has data in workshop12 (gradeoverby) and workshop21 (gradinggradeoverby).
         $contextlist = \mod_workshop\privacy\provider::get_contexts_for_userid($this->teacher4->id);
         $this->assertEquals([$context21->id, $context12->id], $contextlist->get_contextids(), '', 0.0, 10, true);
+
+        // Set viewlet user preferences for student4.
+        $this->set_viewlet_user_preference([$cm11, $cm12, $cm21, $cm22], $this->student4);
+
+        // Test student4 has viewlet user preferences.
+        $contextlist = \mod_workshop\privacy\provider::get_contexts_for_userid($this->student4->id);
+        $this->assertEquals([$context11->id, $context12->id, $context21->id, $context22->id], $contextlist->get_contextids());
     }
 
     /**
@@ -249,6 +268,37 @@ class mod_workshop_privacy_provider_testcase extends advanced_testcase {
         ];
         $actual21 = $userlist21->get_userids();
         $this->assertEquals($expected21, $actual21, '', 0, 10, true);
+
+        // Set some preferences for student 4.
+        $this->set_viewlet_user_preference([$cm11, $cm12, $cm21], $this->student4);
+
+        // Users in the workshop11.
+        $userlist11 = new \core_privacy\local\request\userlist($context11, 'mod_workshop');
+        \mod_workshop\privacy\provider::get_users_in_context($userlist11);
+        $this->assertEquals([
+                $this->student1->id, // Student1 has data in workshop11 (author + self reviewer).
+                $this->student2->id, // Student2 has data in workshop11 (reviewer).
+                $this->student3->id, // Student3 has data in workshop11 (reviewer).
+                $this->student4->id // Student4 has user preferences in view page.
+        ], $userlist11->get_userids());
+        // Users in the workshop12.
+        $userlist12 = new \core_privacy\local\request\userlist($context12, 'mod_workshop');
+        \mod_workshop\privacy\provider::get_users_in_context($userlist12);
+        $this->assertEquals([
+                $this->student1->id, // Student1 has data in workshop12 (author).
+                $this->student2->id, // Student2 has data in workshop12 (reviewer).
+                $this->student4->id, // Student4 has user preferences in view page.
+                $this->teacher4->id // Teacher4 has data in workshop12 (gradeoverby).
+        ], $userlist12->get_userids());
+        // Users in the workshop21.
+        $userlist21 = new \core_privacy\local\request\userlist($context21, 'mod_workshop');
+        \mod_workshop\privacy\provider::get_users_in_context($userlist21);
+        $this->assertEquals([
+                $this->student1->id, // Student1 has data in workshop21 (reviewer).
+                $this->student2->id, // Student2 has data in workshop21 (author).
+                $this->student4->id, // Student4 has user preferences in view page.
+                $this->teacher4->id // Teacher4 has data in workshop21 (gradinggradeoverby).
+        ], $userlist21->get_userids());
     }
 
     /**
@@ -329,6 +379,24 @@ class mod_workshop_privacy_provider_testcase extends advanced_testcase {
     public function test_delete_data_for_all_users_in_context() {
         global $DB;
 
+        // Create some viewlet preferences.
+        $cm11 = get_coursemodule_from_instance('workshop', $this->workshop11->id);
+        $this->set_viewlet_user_preference([$cm11], $this->student1);
+        $this->set_viewlet_user_preference([$cm11], $this->student2);
+        $userids = [
+                $this->student1->id,
+                $this->student2->id
+        ];
+        list($usersql, $userparams) = $DB->get_in_or_equal($userids, SQL_PARAMS_NAMED);
+        $viewletsql = $DB->sql_like('name', ':name', false, false);
+        $prefix = viewlet_user_preference::WORKSHOP_VIEWLET_PREFIX;
+        $prefsql = "SELECT * FROM {user_preferences} WHERE userid $usersql AND $viewletsql";
+        $prefparams = [
+                'name' => "%$prefix%",
+        ];
+        $prefs = $DB->get_records_sql($prefsql, $prefparams + $userparams);
+        $this->assertEquals(2, count($prefs));
+
         $this->assertTrue($DB->record_exists('workshop_submissions', ['workshopid' => $this->workshop11->id]));
 
         // Passing a non-module context does nothing.
@@ -338,6 +406,10 @@ class mod_workshop_privacy_provider_testcase extends advanced_testcase {
         // Passing a workshop context removes all data.
         \mod_workshop\privacy\provider::delete_data_for_all_users_in_context(\context_module::instance($this->workshop11->cmid));
         $this->assertFalse($DB->record_exists('workshop_submissions', ['workshopid' => $this->workshop11->id]));
+
+        // OK check viewlet preferences again.
+        $prefs = $DB->get_records_sql($prefsql, $prefparams + $userparams);
+        $this->assertEmpty(count($prefs));
     }
 
     /**
@@ -367,10 +439,25 @@ class mod_workshop_privacy_provider_testcase extends advanced_testcase {
             $this->assertNotEquals(get_string('privacy:request:delete:title', 'mod_workshop'), $submission->title);
         }
 
+        $cm11 = get_coursemodule_from_instance('workshop', $this->workshop11->id);
+        $this->set_viewlet_user_preference([$cm11], $this->student1);
+
         $contextlist = new \core_privacy\local\request\approved_contextlist($this->student1, 'mod_workshop', [
             \context_module::instance($this->workshop12->cmid)->id,
             \context_module::instance($this->workshop21->cmid)->id,
         ]);
+
+        // Build a query to get viewlet preferences.
+        $viewletsql = $DB->sql_like('name', ':name', false, false);
+        $prefix = viewlet_user_preference::WORKSHOP_VIEWLET_PREFIX;
+        $prefsql = "SELECT * FROM {user_preferences} WHERE userid = :userid AND $viewletsql";
+        $prefparams = [
+                'userid' => $this->student1->id,
+                'name' => "%$prefix%"
+        ];
+        $prefs = $DB->get_records_sql($prefsql, $prefparams);
+        // We have 1 now.
+        $this->assertEquals(1, count($prefs));
 
         \mod_workshop\privacy\provider::delete_data_for_user($contextlist);
 
@@ -422,6 +509,10 @@ class mod_workshop_privacy_provider_testcase extends advanced_testcase {
                 $this->assertNotEquals(get_string('privacy:request:delete:content', 'mod_workshop'), $assessment->feedbackreviewer);
             }
         }
+
+        // Check if viewlet is deleted.
+        $prefs = $DB->get_records_sql($prefsql, $prefparams);
+        $this->assertEmpty($prefs);
     }
 
     /**
@@ -442,14 +533,28 @@ class mod_workshop_privacy_provider_testcase extends advanced_testcase {
         $this->assertFalse($this->is_given_assessment_erased($this->assessment1112));
         $this->assertFalse($this->is_given_assessment_erased($this->assessment1113));
 
+        $cm11 = get_coursemodule_from_instance('workshop', $this->workshop11->id);
+        $userids = [
+                $this->student1->id,
+                $this->student3->id
+        ];
+        $this->set_viewlet_user_preference([$cm11], $this->student1);
+        $this->set_viewlet_user_preference([$cm11], $this->student3);
+        list($usersql, $userparams) = $DB->get_in_or_equal($userids, SQL_PARAMS_NAMED);
+        $viewletsql = $DB->sql_like('name', ':name', false, false);
+        $prefix = viewlet_user_preference::WORKSHOP_VIEWLET_PREFIX;
+        $prefsql = "SELECT * FROM {user_preferences} WHERE userid $usersql AND $viewletsql";
+        $prefparams = [
+                'name' => "%$prefix%",
+        ];
+        $prefs = $DB->get_records_sql($prefsql, $prefparams + $userparams);
+        $this->assertEquals(2, count($prefs));
+
         // Delete data owned by student1 and student3 in the workshop11.
 
         $context11 = \context_module::instance($this->workshop11->cmid);
 
-        $approveduserlist = new \core_privacy\local\request\approved_userlist($context11, 'mod_workshop', [
-            $this->student1->id,
-            $this->student3->id,
-        ]);
+        $approveduserlist = new \core_privacy\local\request\approved_userlist($context11, 'mod_workshop', $userids);
         \mod_workshop\privacy\provider::delete_data_for_users($approveduserlist);
 
         // Student1's submission is erased in workshop11 but not in the other workshop12.
@@ -474,6 +579,10 @@ class mod_workshop_privacy_provider_testcase extends advanced_testcase {
         $this->assertFalse($this->is_submission_erased($this->submission121));
         $this->assertFalse($this->is_given_assessment_erased($this->assessment2121));
         $this->assertFalse($this->is_received_assessment_erased($this->assessment2121));
+
+        // Ok check if we deleted oll viewlet of student 1 + 3.
+        $prefs = $DB->get_records_sql($prefsql, $prefparams + $userparams);
+        $this->assertEmpty($prefs);
     }
 
     /**
@@ -534,5 +643,69 @@ class mod_workshop_privacy_provider_testcase extends advanced_testcase {
         } else {
             return false;
         }
+    }
+
+    /**
+     * Set viewlet user preferences.
+     *
+     * @param array $coursemodules Course modules list.
+     * @param stdClass $user
+     * @param int $value
+     * @param null|string $type
+     */
+    protected function set_viewlet_user_preference(array $coursemodules, $user, $value = 1, $type = null) {
+        if ($type === null) {
+            $type = viewlet_user_preference::WORKSHOP_VIEWLET_INTRO;
+        }
+        if (!empty($coursemodules)) {
+            foreach ($coursemodules as $cm) {
+                $prefname = viewlet_user_preference::get_name($type, $cm->instance);
+                set_user_preference($prefname, $value, $user);
+            }
+        }
+    }
+
+    /**
+     * Test export user data when user has viewlet preferences.
+     *
+     * @link \mod_workshop\privacy\provider::export_user_data()
+     */
+    public function test_export_user_data_with_viewlet_preferences() {
+        $cm11 = get_coursemodule_from_instance('workshop', $this->workshop11->id);
+        $cm12 = get_coursemodule_from_instance('workshop', $this->workshop12->id);
+
+        $user = $this->student4;
+
+        $context11 = context_module::instance($cm11->id);
+        $context12 = context_module::instance($cm12->id);
+
+        // Seed for $cm11.
+        $prefname11 = viewlet_user_preference::get_name(viewlet_user_preference::WORKSHOP_VIEWLET_INTRO, $cm11->instance);
+        set_user_preference($prefname11, 1, $user);
+		$prefname12 = viewlet_user_preference::get_name(viewlet_user_preference::WORKSHOP_VIEWLET_GRADEREPORT, $cm11->instance);
+        set_user_preference($prefname12, 0, $user);
+        // Seed for $cm12.
+		$prefname21 = viewlet_user_preference::get_name(viewlet_user_preference::WORKSHOP_VIEWLET_INTRO, $cm12->instance);
+        set_user_preference($prefname21, 1, $user);
+		$prefname22 = viewlet_user_preference::get_name(viewlet_user_preference::WORKSHOP_VIEWLET_GRADEREPORT, $cm12->instance);
+        set_user_preference($prefname22, 0, $user);
+
+        $contextlist = new \core_privacy\local\request\approved_contextlist($this->student4, 'mod_workshop', [
+                $context11->id,
+                $context12->id,
+        ]);
+
+        \mod_workshop\privacy\provider::export_user_data($contextlist);
+
+        $yes = transform::yesno(1);
+        $no = transform::yesno(0);
+
+        $prefs1 = writer::with_context($context11)->get_user_context_preferences('mod_workshop');
+		$this->assertEquals($yes, $prefs1->$prefname11->value);
+		$this->assertEquals($no, $prefs1->$prefname12->value);
+
+        $prefs2 = writer::with_context($context12)->get_user_context_preferences('mod_workshop');
+		$this->assertEquals($yes, $prefs2->$prefname21->value);
+		$this->assertEquals($no, $prefs2->$prefname22->value);
     }
 }
