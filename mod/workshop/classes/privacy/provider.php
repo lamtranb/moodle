@@ -34,6 +34,7 @@ use core_privacy\local\request\helper;
 use core_privacy\local\request\transform;
 use core_privacy\local\request\userlist;
 use core_privacy\local\request\writer;
+use mod_workshop\local\workshop_helper;
 
 defined('MOODLE_INTERNAL') || die();
 
@@ -110,7 +111,10 @@ class provider implements
         $collection->add_subsystem_link('core_files', [], 'privacy:metadata:subsystem:corefiles');
         $collection->add_subsystem_link('core_plagiarism', [], 'privacy:metadata:subsystem:coreplagiarism');
 
-        $collection->add_user_preference('workshop_perpage', 'privacy:metadata:preference:perpage');
+        $userprefs = workshop_helper::get_user_prefs();
+        foreach ($userprefs as $userpref) {
+            $collection->add_user_preference($userpref, "privacy:metadata:preference:$userpref");
+        }
 
         return $collection;
     }
@@ -259,12 +263,20 @@ class provider implements
      * @param int $userid ID of the user we are exporting data for
      */
     public static function export_user_preferences(int $userid) {
-
-        $perpage = get_user_preferences('workshop_perpage', null, $userid);
-
-        if ($perpage !== null) {
-            writer::export_user_preference('mod_workshop', 'workshop_perpage', $perpage,
-                get_string('privacy:metadata:preference:perpage', 'mod_workshop'));
+        $userprefs = workshop_helper::get_user_prefs();
+        $expandstr = get_string('expand');
+        $collapsestr = get_string('collapse');
+        foreach ($userprefs as $userpref) {
+            $userprefval = get_user_preferences($userpref, null, $userid);
+            if ($userprefval !== null) {
+                $description = get_string("privacy:metadata:preference:$userpref", 'mod_workshop');
+                if ($userpref === workshop_helper::PREF_PERPAGE) {
+                    writer::export_user_preference('mod_workshop', $userpref, $userprefval, $description);
+                } else {
+                    writer::export_user_preference('mod_workshop', $userpref,
+                            $userprefval == 1 ? $collapsestr : $expandstr, $description);
+                }
+            }
         }
     }
 
