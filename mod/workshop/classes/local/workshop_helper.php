@@ -41,6 +41,9 @@ class workshop_helper {
     /** @var string The collapsed/expanded state of "Workshop submissions report" block preference key. */
     const PREF_BLOCK_ALLSUBMISSIONS = 'workshop_block_allsubmissions';
 
+    /** @var string The collapsed/expanded state of "Assessment form" block preference key. */
+    const PREF_BLOCK_ASSESSMENTFORM = 'workshop_block_assessmentform';
+
     /** @var string The collapsed/expanded state of "Assigned submissions to assess" block preference key. */
     const PREF_BLOCK_ASSIGNEDASSESSMENTS = 'workshop_block_assignedassessments';
 
@@ -68,6 +71,9 @@ class workshop_helper {
     /** @var string The collapsed/expanded state of "Description" block preference key. */
     const PREF_BLOCK_INTRO = 'workshop_block_intro';
 
+    /** @var string The collapsed/expanded state of "Overall feedback" block preference key. */
+    const PREF_BLOCK_OVERALLFEEDBACK = 'workshop_block_overallfeedback';
+
     /** @var string The collapsed/expanded state of "Your submission" block preference key. */
     const PREF_BLOCK_OWNSUBMISSION = 'workshop_block_ownsubmission';
 
@@ -89,6 +95,7 @@ class workshop_helper {
         return [
                 self::PREF_BLOCK_ALLEXAMPLES,
                 self::PREF_BLOCK_ALLSUBMISSIONS,
+                self::PREF_BLOCK_ASSESSMENTFORM,
                 self::PREF_BLOCK_ASSIGNEDASSESSMENTS,
                 self::PREF_BLOCK_CLEARGRADES,
                 self::PREF_BLOCK_CONCLUSION,
@@ -98,6 +105,7 @@ class workshop_helper {
                 self::PREF_BLOCK_INSTRUCTAUTHORS,
                 self::PREF_BLOCK_INSTRUCTREVIEWERS,
                 self::PREF_BLOCK_INTRO,
+                self::PREF_BLOCK_OVERALLFEEDBACK,
                 self::PREF_BLOCK_OWNSUBMISSION,
                 self::PREF_BLOCK_PUBLICSUBMISSIONS,
                 self::PREF_BLOCK_YOURGRADES,

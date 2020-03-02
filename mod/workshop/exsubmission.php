@@ -26,6 +26,8 @@
 require(__DIR__.'/../../config.php');
 require_once(__DIR__.'/locallib.php');
 
+use mod_workshop\local\workshop_helper;
+
 $cmid       = required_param('cmid', PARAM_INT);            // course module id
 $id         = required_param('id', PARAM_INT);              // example submission id, 0 for the new one
 $edit       = optional_param('edit', false, PARAM_BOOL);    // open for editing?
@@ -180,7 +182,8 @@ echo $output->heading(format_string($workshop->name), 2);
 if (trim($workshop->instructauthors)) {
     $instructions = file_rewrite_pluginfile_urls($workshop->instructauthors, 'pluginfile.php', $PAGE->context->id,
         'mod_workshop', 'instructauthors', null, workshop::instruction_editors_options($PAGE->context));
-    print_collapsible_region_start('', 'workshop-viewlet-instructauthors', get_string('instructauthors', 'workshop'));
+    print_collapsible_region_start('', 'workshop-viewlet-instructauthors', get_string('instructauthors', 'workshop'),
+            workshop_helper::PREF_BLOCK_INSTRUCTAUTHORS);
     echo $output->box(format_text($instructions, $workshop->instructauthorsformat, array('overflowdiv'=>true)), array('generalbox', 'instructions'));
     print_collapsible_region_end();
 }
