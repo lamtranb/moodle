@@ -29,6 +29,8 @@
 
 defined('MOODLE_INTERNAL') || die();
 
+use core\message\message;
+
 require_once(__DIR__.'/lib.php');     // we extend this library here
 require_once($CFG->libdir . '/gradelib.php');   // we use some rounding and comparing routines here
 require_once($CFG->libdir . '/filelib.php');
@@ -188,6 +190,9 @@ class workshop {
      * Do not use directly, get the instance using {@link workshop::grading_evaluation_instance()}
      */
     protected $evaluationinstance = null;
+
+    /** @var int Flag assessment notification for reviewers. */
+    public $assessmentnotification = 0;
 
     /**
      * Initializes the workshop API instance using the data from DB
@@ -1948,6 +1953,23 @@ class workshop {
 
         $DB->set_field('workshop', 'phase', $newphase, array('id' => $this->id));
         $this->phase = $newphase;
+
+        // When coming into assessment phase, turn this flag on and wait for cron to execute.
+        if ($newphase === self::PHASE_ASSESSMENT) {
+            // In case is already = 1, don't call update.
+            if ($this->assessmentnotification != 1) {
+                $DB->set_field('workshop', 'assessmentnotification', 1, ['id' => $this->id]);
+                $this->assessmentnotification = 1;
+            }
+        } else {
+            // When switch to another phase, turn this flag off.
+            if ($this->assessmentnotification != 0) {
+                $DB->set_field('workshop', 'assessmentnotification', 0, ['id' => $this->id]);
+                $this->assessmentnotification = 0;
+            }
+        }
+
+
         $eventdata = array(
             'objectid' => $this->id,
             'context' => $this->context,
@@ -3205,6 +3227,41 @@ class workshop {
         $DB->update_record('workshop_submissions', $record);
     }
 
+    /**
+     * Notify reviewers has assessments.
+     *
+     * @return void
+     */
+    public function notify_reviewers_for_assessments() {
+        // Get all reviewers.
+        $reviewers = $this->get_potential_reviewers();
+        // Get all assessments.
+        $assessments = $this->get_all_assessments();
+
+        if (empty($assessments)) {
+            // No assessment. No need to execute code below.
+            return;
+        }
+
+        $modulename = get_string('modulename', 'workshop');
+
+        $data = [];
+        foreach ($assessments as $assessment) {
+            $reviewerid = $assessment->reviewerid;
+            if (!isset($data[$reviewerid])) {
+                $data[$reviewerid] = [];
+            }
+            $data[$reviewerid][] = $assessment;
+        }
+
+        foreach ($data as $userid => $userassessments) {
+            if (!isset($reviewers[$userid])) {
+                continue;
+            }
+            $this->notify_reviewer_for_assessments($reviewers[$userid], $userassessments, $modulename);
+        }
+    }
+
     ////////////////////////////////////////////////////////////////////////////////
     // Internal methods (implementation details)                                  //
     ////////////////////////////////////////////////////////////////////////////////
@@ -3527,6 +3584,104 @@ class workshop {
 
         $DB->set_field('workshop', 'phase', self::PHASE_SETUP, array('id' => $this->id));
         $this->phase = self::PHASE_SETUP;
+    }
+
+    /**
+     * Notify a reviewer who has submissions to assess.
+     *
+     * @param stdClass $reviewer Instance of user.
+     * @param array $assessments All assessments of reviewer.
+     * @param string $modulename Module name.
+     * @param null|stdClass $userfrom Instance of user used to send email.
+     */
+    protected function notify_reviewer_for_assessments($reviewer, $assessments, $modulename, $userfrom = null) {
+        global $USER;
+
+        $context = $this->context;
+        $cm = $this->cm;
+        $course = $this->course;
+        $workshopname = $this->name;
+
+        $messagetype = 'assessment_reviewer_notification';
+
+        // Get current user.
+        if ($userfrom === null) {
+            $userfrom = $USER;
+        }
+        $userto = $reviewer;
+
+        $info = new stdClass();
+        $info->workshopname = format_string($workshopname, true, ['context' => $context]);
+        $info->url = (new moodle_url('/mod/workshop/view.php', ['id' => $cm->id]))->out(false);
+        $info->assessments = $assessments;
+        $info->total = count($assessments);
+        $info->modulename = $modulename;
+        $info->context = $context;
+        $info->course = $course;
+        $info->cm = $cm;
+
+        $messagesubject = get_string("{$messagetype}:mail:subject", 'workshop', $info);
+        $messagehtml = self::format_notification_message($info, $messagetype);
+        $messagetext = html_to_text($messagehtml);
+
+        $eventdata = new message();
+        $eventdata->modulename        = $info->modulename;
+        $eventdata->name              = $messagetype;
+        $eventdata->component         = 'mod_workshop';
+        $eventdata->courseid          = $course->id;
+        $eventdata->userfrom          = $userfrom;
+        $eventdata->userto            = $userto;
+        $eventdata->subject           = $messagesubject;
+        $eventdata->smallmessage      = $messagetext;
+        $eventdata->fullmessage       = $messagetext;
+        $eventdata->fullmessageformat = FORMAT_HTML;
+        $eventdata->fullmessagehtml   = $messagehtml;
+        $eventdata->notification      = 1;
+        $eventdata->contexturl        = $info->url;
+        $eventdata->contexturlname    = $info->workshopname;
+        $customdata = [
+                'cmid' => $cm->id,
+                'instance' => $cm->instance,
+                'messagetype' => $messagetype
+        ];
+        $eventdata->customdata = $customdata;
+        // Send email now.
+        message_send($eventdata);
+    }
+
+    /**
+     * Format a notification for HTML.
+     *
+     * @param stdClass $info Data to send to reviewer.
+     * @param string $messagetype Message type.
+     * @return string
+     */
+    protected static function format_notification_message($info, $messagetype) {
+        $html = html_writer::start_div();
+        $html .= html_writer::span(html_writer::link(
+                (new moodle_url('/course/view.php', ['id' => $info->course->id]))->out(false),
+                format_string($info->course->shortname, true, ['context' => $info->context])
+        ));
+        $html .= html_writer::span(' -> ');
+        $html .= html_writer::span(html_writer::link(
+                (new moodle_url('/mod/workshop/index.php', ['id' => $info->course->id]))->out(false),
+                $info->modulename
+        ));
+        $html .= html_writer::span(' -> ');
+        $html .= html_writer::span(html_writer::link(
+                (new moodle_url('/mod/workshop/view.php', ['id' => $info->cm->id]))->out(false),
+                $info->workshopname
+        ));
+        $html .= html_writer::end_div();
+        $html .= html_writer::div('---------------------------------------------------------------------');
+        foreach ($info->assessments as $k => $assessment) {
+            $html .= html_writer::div(get_string("{$messagetype}:mail:html", 'workshop', $info));
+            $html .= html_writer::div(
+                    (new moodle_url('/mod/workshop/assessment.php', ['asid' => $assessment->id]))->out(false)
+            );
+            $html .= html_writer::div('---------------------------------------------------------------------');
+        }
+        return $html;
     }
 }
 

@@ -15,15 +15,14 @@
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
 /**
- * Defines the version of workshop
+ * Defines message providers (types of messages being sent)
  *
- * @package    mod_workshop
- * @copyright  2009 David Mudrak <david.mudrak@gmail.com>
- * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
+ * @package mod_workshop
+ * @copyright 2020 The Open University
+ * @license   http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 
-defined('MOODLE_INTERNAL') || die();
-
-$plugin->version   = 2020030600;        // The current module version (YYYYMMDDXX)
-$plugin->requires  = 2019111200;        // Requires this Moodle version.
-$plugin->component = 'mod_workshop';
+$messageproviders = [
+    // Notify assessment for reviewer.
+    'assessment_reviewer_notification' => []
+];

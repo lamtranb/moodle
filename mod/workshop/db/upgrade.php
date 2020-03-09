@@ -92,5 +92,14 @@ function xmldb_workshop_upgrade($oldversion) {
     // Automatically generated Moodle v3.8.0 release upgrade line.
     // Put any upgrade step following this.
 
+    if ($oldversion < 2020030600) {
+        $table = new xmldb_table('workshop');
+        $field = new xmldb_field('assessmentnotification', XMLDB_TYPE_INTEGER, '1', null, XMLDB_NOTNULL, null, 0, 'overallfeedbackmaxbytes');
+        if (!$dbman->field_exists($table, $field)) {
+            $dbman->add_field($table, $field);
+        }
+        upgrade_mod_savepoint(true, 2020030600, 'workshop');
+    }
+
     return true;
 }
