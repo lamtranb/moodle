@@ -68,8 +68,6 @@ class qtype_ddtoimage_renderer_base extends qtype_with_combined_feedback_rendere
                 'alt' => get_string('dropbackground', 'qtype_ddimageortext')));
         $dropzones = html_writer::tag('div', '', array('class' => 'dropzones'));
 
-        $droparea = html_writer::tag('div', $img . $dropzones, array('class' => 'droparea'));
-
         $dragimagehomes = '';
         foreach ($question->choices as $groupno => $group) {
             $dragimagehomesgroup = '';
@@ -110,8 +108,18 @@ class qtype_ddtoimage_renderer_base extends qtype_with_combined_feedback_rendere
             $hiddens .= $html;
             $question->places[$placeno]->fieldname = $fieldname;
         }
-        $output .= html_writer::tag('div',
-                $droparea . $draghomes. $dragitems . $hiddens, array('class' => 'ddarea'));
+
+        $hiddens = html_writer::div($hiddens, 'hiddens');
+
+        $imgcontainer = html_writer::div($img, 'dropimagecontainer');
+
+        $droparea = html_writer::tag('div', $imgcontainer . $dropzones . $dragitems . $hiddens, [
+                'class' => 'droparea'
+        ]);
+
+        $output .= html_writer::tag('div', $droparea . $draghomes, array(
+                'class' => 'ddarea'
+        ));
 
         $PAGE->requires->string_for_js('blank', 'qtype_ddimageortext');
         $PAGE->requires->js_call_amd('qtype_ddimageortext/question', 'init',

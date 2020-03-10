@@ -718,8 +718,6 @@ define(['jquery', 'core/dragdrop', 'core/key_codes'], function($, dragDrop, keys
                 .on('keydown',
                     '.que.ddimageortext:not(.qtype_ddimageortext-readonly) .dropzones .dropzone',
                     questionManager.handleKeyPress);
-            $(window).on('resize', questionManager.handleWindowResize);
-            setTimeout(questionManager.fixLayoutIfThingsMoved, 100);
         },
 
         /**
@@ -742,17 +740,6 @@ define(['jquery', 'core/dragdrop', 'core/key_codes'], function($, dragDrop, keys
             var question = questionManager.getQuestionForEvent(e);
             if (question) {
                 question.handleKeyPress(e);
-            }
-        },
-
-        /**
-         * Handle when the window is resized.
-         */
-        handleWindowResize: function() {
-            for (var containerId in questionManager.questions) {
-                if (questionManager.questions.hasOwnProperty(containerId)) {
-                    questionManager.questions[containerId].positionDragsAndDrops();
-                }
             }
         },
 

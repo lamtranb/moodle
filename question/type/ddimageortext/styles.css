@@ -6,6 +6,10 @@
 .que.ddimageortext div.ddarea,
 form.mform fieldset#id_previewareaheader div.ddarea {
     text-align: center;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    flex-direction: column;
 }
 
 .que.ddimageortext div.droparea,
@@ -13,11 +17,14 @@ form.mform fieldset#id_previewareaheader div.ddarea {
     position: relative;
 }
 
+.que.ddimageortext div.droparea .dragitems div.unplaced,
+form.mform fieldset#id_previewareaheader div.droparea .dragitems div.unplaced {
+    /*display: none;*/
+}
+
 .que.ddimageortext .dropbackground,
 form.mform fieldset#id_previewareaheader .dropbackground {
     border: 1px solid #000;
-    max-width: none;
-    margin: 0 auto;
 }
 
 .que.ddimageortext .dropzone {
@@ -45,7 +52,6 @@ form.mform fieldset#id_previewareaheader .droppreview {
 .que.ddimageortext .draghome {
     vertical-align: top;
     margin: 5px;
-    visibility: hidden;
     height: auto;
     width: auto;
 }
