@@ -46,7 +46,7 @@ $tasks = [
     [
         'classname' => '\mod_workshop\task\notification_task',
         'blocking' => 0,
-        'minute' => '*',
+        'minute' => '15',
         'hour' => '*',
         'day' => '*',
         'month' => '*',

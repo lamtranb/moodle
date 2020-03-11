@@ -3258,7 +3258,7 @@ class workshop {
             if (!isset($reviewers[$userid])) {
                 continue;
             }
-            $this->notify_reviewer_for_assessments($reviewers[$userid], $userassessments, $modulename);
+            $this->send_notification($modulename, 'assessment_phase', $reviewers[$userid], $userassessments);
         }
     }
 
@@ -3587,14 +3587,15 @@ class workshop {
     }
 
     /**
-     * Notify a reviewer who has submissions to assess.
+     * Workshop notification.
      *
-     * @param stdClass $reviewer Instance of user.
-     * @param array $assessments All assessments of reviewer.
      * @param string $modulename Module name.
+     * @param string $messagetype Message type.
+     * @param object $userto User to receive notification.
+     * @param array $data Data to notify.
      * @param null|stdClass $userfrom Instance of user used to send email.
      */
-    protected function notify_reviewer_for_assessments($reviewer, $assessments, $modulename, $userfrom = null) {
+    protected function send_notification($modulename, $messagetype, $userto, $data, $userfrom = null) {
         global $USER;
 
         $context = $this->context;
@@ -3602,19 +3603,16 @@ class workshop {
         $course = $this->course;
         $workshopname = $this->name;
 
-        $messagetype = 'assessment_reviewer_notification';
-
         // Get current user.
         if ($userfrom === null) {
             $userfrom = $USER;
         }
-        $userto = $reviewer;
 
         $info = new stdClass();
         $info->workshopname = format_string($workshopname, true, ['context' => $context]);
         $info->url = (new moodle_url('/mod/workshop/view.php', ['id' => $cm->id]))->out(false);
-        $info->assessments = $assessments;
-        $info->total = count($assessments);
+        $info->assessments = $data;
+        $info->total = count($data);
         $info->modulename = $modulename;
         $info->context = $context;
         $info->course = $course;

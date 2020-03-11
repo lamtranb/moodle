@@ -24,5 +24,5 @@
 
 $messageproviders = [
     // Notify assessment for reviewer.
-    'assessment_reviewer_notification' => []
+    'assessment_phase' => []
 ];
